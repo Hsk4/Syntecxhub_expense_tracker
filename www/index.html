@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Expense Tracker</title>
+<style>
+:root{--bg:#eef2f4;--card:#fff;--ink:#14212b;--mute:#5d6b76;--line:#d9e1e6;--accent:#1f6f8b;--neg:#b4412f}
+@media (prefers-color-scheme:dark){:root{--bg:#10181e;--card:#18232b;--ink:#e6edf1;--mute:#8fa1ad;--line:#26343e;--accent:#4fb0cf;--neg:#e5836f}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 24px);max-width:520px;margin:auto}
+header{padding:20px 0 8px}
+.nav{display:flex;align-items:center;justify-content:space-between}
+.nav button{background:none;border:1px solid var(--line);color:var(--ink);border-radius:10px;width:40px;height:40px;font-size:18px}
+#month{font-weight:600;font-size:17px}
+.total{font-size:40px;font-weight:700;letter-spacing:-1px;margin:14px 0 2px}
+.sub{color:var(--mute);font-size:14px}
+.bars{margin:16px 0;display:flex;flex-direction:column;gap:8px}
+.bar{display:grid;grid-template-columns:92px 1fr auto;gap:10px;align-items:center;font-size:13px}
+.track{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.fill{height:100%;background:var(--accent)}
+form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+form .full{grid-column:1/-1}
+input,select{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.add{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:13px;font-size:16px;font-weight:600}
+h2{font-size:15px;margin:22px 0 8px;font-weight:600}
+.day{color:var(--mute);font-size:13px;margin:14px 0 4px}
+.item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:6px}
+.item .t{flex:1;min-width:0}
+.item .n{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .c{font-size:12px;color:var(--mute)}
+.amt{font-weight:600;color:var(--neg)}
+.del{background:none;border:0;color:var(--mute);font-size:20px;padding:4px 8px}
+.empty{color:var(--mute);text-align:center;padding:28px 0;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="nav">
+    <button id="prev" aria-label="Previous month">‹</button>
+    <span id="month"></span>
+    <button id="next" aria-label="Next month">›</button>
+  </div>
+  <div class="total" id="total"></div>
+  <div class="sub" id="count"></div>
+</header>
+
+<div class="bars" id="bars"></div>
+
+<form id="form">
+  <input class="full" id="amount" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Amount" required>
+  <select id="cat"></select>
+  <input id="date" type="date" required>
+  <input class="full" id="note" type="text" placeholder="Note (optional)" maxlength="60">
+  <button class="add full" type="submit">Add expense</button>
+</form>
+
+<h2>Expenses</h2>
+<div id="list"></div>
+
+<script>
+const CUR = "Rs";
+const KEY = "expenses.v1";
+const CATS = ["Food","Transport","Bills","Shopping","Health","Fun","Other"];
+
+const $ = id => document.getElementById(id);
+const fmt = n => CUR + " " + n.toLocaleString(undefined,{maximumFractionDigits:2});
+const today = () => new Date().toISOString().slice(0,10);
+
+function load(){
+  try { return JSON.parse(localStorage.getItem(KEY)) || []; }
+  catch { return []; }
+}
+function save(){
+  try { localStorage.setItem(KEY, JSON.stringify(items)); }
+  catch { alert("Could not save. Storage may be full."); }
+}
+
+let items = load();
+let view = new Date(); view.setDate(1);
+
+const ym = d => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0");
+
+function render(){
+  const key = ym(view);
+  const rows = items.filter(e => e.date.startsWith(key)).sort((a,b)=> b.date.localeCompare(a.date) || b.id-a.id);
+  const sum = rows.reduce((s,e)=>s+e.amount,0);
+
+  $("month").textContent = view.toLocaleString(undefined,{month:"long",year:"numeric"});
+  $("total").textContent = fmt(sum);
+  $("count").textContent = rows.length + (rows.length===1 ? " expense" : " expenses");
+
+  const by = {};
+  rows.forEach(e => by[e.cat] = (by[e.cat]||0) + e.amount);
+  $("bars").innerHTML = Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([c,v]) =>
+    `<div class="bar"><span>${c}</span><div class="track"><div class="fill" style="width:${sum?v/sum*100:0}%"></div></div><span>${fmt(v)}</span></div>`
+  ).join("");
+
+  if(!rows.length){ $("list").innerHTML = '<div class="empty">No expenses this month. Add one above.</div>'; return; }
+
+  let html = "", last = "";
+  rows.forEach(e => {
+    if(e.date !== last){
+      last = e.date;
+      html += `<div class="day">${new Date(e.date+"T00:00").toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short"})}</div>`;
+    }
+    const note = e.note ? e.note.replace(/[&<>"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch])) : e.cat;
+    html += `<div class="item"><div class="t"><div class="n">${note}</div><div class="c">${e.cat}</div></div><div class="amt">${fmt(e.amount)}</div><button class="del" data-id="${e.id}" aria-label="Delete expense">×</button></div>`;
+  });
+  $("list").innerHTML = html;
+}
+
+$("cat").innerHTML = CATS.map(c=>`<option>${c}</option>`).join("");
+$("date").value = today();
+
+$("form").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const amount = parseFloat($("amount").value);
+  if(!(amount > 0)) return;
+  const date = $("date").value || today();
+  items.push({ id: Date.now(), amount, cat: $("cat").value, note: $("note").value.trim(), date });
+  save();
+  view = new Date(date+"T00:00"); view.setDate(1);
+  $("amount").value = ""; $("note").value = "";
+  render();
+});
+
+$("list").addEventListener("click", ev => {
+  const b = ev.target.closest(".del");
+  if(!b || !confirm("Delete this expense?")) return;
+  items = items.filter(e => e.id !== Number(b.dataset.id));
+  save(); render();
+});
+
+$("prev").onclick = () => { view.setMonth(view.getMonth()-1); render(); };
+$("next").onclick = () => { view.setMonth(view.getMonth()+1); render(); };
+
+render();
+</script>
+</body>
+</html>
